@@ -1,0 +1,9 @@
+g1 about to yield from g2
+Traceback (most recent call last):
+  File "test18.py", line 14, in <module>
+    next(gi)
+  File "test18.py", line 7, in g1
+    yield from g2()
+  File "test18.py", line 11, in g2
+    yield 1/0
+ZeroDivisionError: int division or modulo by zero

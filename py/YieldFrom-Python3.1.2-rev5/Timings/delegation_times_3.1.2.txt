@@ -1,0 +1,13 @@
+    direct    1000000   0.632544
+    direct    1000000   0.633028
+    direct    1000000   0.633403
+
+   forloop    1000000   1.02326
+   forloop    1000000   1.02204
+   forloop    1000000   1.02385
+
+ yieldfrom    1000000   0.665167
+ yieldfrom    1000000   0.664271
+ yieldfrom    1000000   0.666963
+
+Delegation overhead = 8.3% of for-loop

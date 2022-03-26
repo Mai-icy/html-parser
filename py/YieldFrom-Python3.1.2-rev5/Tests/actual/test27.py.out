@@ -1,0 +1,8 @@
+Enter g
+Enter f
+Traceback (most recent call last):
+  File "test27.py", line 21, in <module>
+    gi.throw(GeneratorExit)
+  File "test27.py", line 16, in g
+    yield from f()
+RuntimeError: generator ignored GeneratorExit

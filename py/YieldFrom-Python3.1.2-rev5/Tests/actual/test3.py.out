@@ -1,0 +1,12 @@
+Starting g1
+Starting g2
+Finishing g2
+Finishing g1
+Traceback (most recent call last):
+  File "test3.py", line 19, in <module>
+    for x in g1():
+  File "test3.py", line 8, in g1
+    yield from g2()
+  File "test3.py", line 15, in g2
+    raise ValueError("spanish inquisition occurred")
+ValueError: spanish inquisition occurred

@@ -1,0 +1,13 @@
+Starting g
+Yielded 0
+Yielded 1
+Yielded 2
+Yielded 3
+Yielded 4
+Finishing g
+Traceback (most recent call last):
+  File "test16.py", line 17, in <module>
+    gi.throw(e)
+  File "test16.py", line 8, in g
+    yield from range(10)
+ValueError: tomato ejected

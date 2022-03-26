@@ -1,0 +1,4 @@
+1
+inner caught ValueError
+inner returned 2 to outer
+2

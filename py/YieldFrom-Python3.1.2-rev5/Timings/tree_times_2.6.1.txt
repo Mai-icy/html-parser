@@ -1,0 +1,180 @@
+   forloop          1   4.60148e-05
+   forloop          1   5.38826e-05
+   forloop          1   4.60148e-05
+
+ yieldfrom          1   6.41346e-05
+ yieldfrom          1   6.79493e-05
+ yieldfrom          1   4.91142e-05
+
+   forloop          2   4.29153e-05
+   forloop          2   4.41074e-05
+   forloop          2   6.50883e-05
+
+ yieldfrom          2   7.41482e-05
+ yieldfrom          2   8.10623e-05
+ yieldfrom          2   6.00815e-05
+
+   forloop          3   7.10487e-05
+   forloop          3   7.00951e-05
+   forloop          3   6.60419e-05
+
+ yieldfrom          3   0.000110865
+ yieldfrom          3   9.70364e-05
+ yieldfrom          3   0.000117064
+
+   forloop          4   0.000133991
+   forloop          4   0.000129223
+   forloop          4   0.000125885
+
+ yieldfrom          4   0.000138044
+ yieldfrom          4   0.000166893
+ yieldfrom          4   0.000138044
+
+   forloop          5   0.000235081
+   forloop          5   0.000245094
+   forloop          5   0.000315189
+
+ yieldfrom          5   0.000248909
+ yieldfrom          5   0.000238895
+ yieldfrom          5   0.000272036
+
+   forloop          6   0.00046277
+   forloop          6   0.000456095
+   forloop          6   0.000451088
+
+ yieldfrom          6   0.000485897
+ yieldfrom          6   0.000448942
+ yieldfrom          6   0.000438929
+
+   forloop          7   0.000941992
+   forloop          7   0.00108004
+   forloop          7   0.0009408
+
+ yieldfrom          7   0.000877142
+ yieldfrom          7   0.000833988
+ yieldfrom          7   0.00104809
+
+   forloop          8   0.00204611
+   forloop          8   0.00210905
+   forloop          8   0.00192094
+
+ yieldfrom          8   0.00170898
+ yieldfrom          8   0.00176001
+ yieldfrom          8   0.00176001
+
+   forloop          9   0.00399804
+   forloop          9   0.00397897
+   forloop          9   0.00397706
+
+ yieldfrom          9   0.00351596
+ yieldfrom          9   0.00339508
+ yieldfrom          9   0.0033989
+
+   forloop         10   0.00850105
+   forloop         10   0.00827003
+   forloop         10   0.00826311
+
+ yieldfrom         10   0.00698614
+ yieldfrom         10   0.00668192
+ yieldfrom         10   0.00687695
+
+   forloop         11   0.0171959
+   forloop         11   0.0177372
+   forloop         11   0.0172601
+
+ yieldfrom         11   0.014111
+ yieldfrom         11   0.0134201
+ yieldfrom         11   0.0141749
+
+   forloop         12   0.0360701
+   forloop         12   0.036098
+   forloop         12   0.0365
+
+ yieldfrom         12   0.02792
+ yieldfrom         12   0.0279369
+ yieldfrom         12   0.0276752
+
+   forloop         13   0.074517
+   forloop         13   0.075485
+   forloop         13   0.0755229
+
+ yieldfrom         13   0.055402
+ yieldfrom         13   0.05565
+ yieldfrom         13   0.054929
+
+   forloop         14   0.15316
+   forloop         14   0.154772
+   forloop         14   0.154685
+
+ yieldfrom         14   0.110737
+ yieldfrom         14   0.109794
+ yieldfrom         14   0.110338
+
+   forloop         15   0.317849
+   forloop         15   0.318541
+   forloop         15   0.317972
+
+ yieldfrom         15   0.220335
+ yieldfrom         15   0.220109
+ yieldfrom         15   0.22082
+
+   forloop         16   0.664082
+   forloop         16   0.664056
+   forloop         16   0.663649
+
+ yieldfrom         16   0.443032
+ yieldfrom         16   0.441633
+ yieldfrom         16   0.442922
+
+   forloop         17   1.36891
+   forloop         17   1.36945
+   forloop         17   1.36887
+
+ yieldfrom         17   0.89184
+ yieldfrom         17   0.891959
+ yieldfrom         17   0.891729
+
+   forloop         18   2.82722
+   forloop         18   2.82754
+   forloop         18   2.82818
+
+ yieldfrom         18   1.79164
+ yieldfrom         18   1.7951
+ yieldfrom         18   1.80768
+
+   forloop         19   5.87926
+   forloop         19   5.89268
+   forloop         19   5.88005
+
+ yieldfrom         19   3.66153
+ yieldfrom         19   3.67212
+ yieldfrom         19   3.65019
+
+   forloop         20   12.0976
+   forloop         20   12.0912
+   forloop         20   12.0913
+
+ yieldfrom         20   7.41182
+ yieldfrom         20   7.36516
+ yieldfrom         20   7.49692
+
+  1 0.000049 0.000060 0.805263
+  2 0.000051 0.000072 0.706534
+  3 0.000069 0.000108 0.637564
+  4 0.000130 0.000148 0.878364
+  5 0.000265 0.000253 1.04675
+  6 0.000457 0.000458 0.997223
+  7 0.000988 0.000920 1.07379
+  8 0.002025 0.001743 1.162
+  9 0.003985 0.003437 1.15947
+ 10 0.008345 0.006848 1.2185
+ 11 0.017398 0.013902 1.25145
+ 12 0.036223 0.027844 1.30091
+ 13 0.075175 0.055327 1.35874
+ 14 0.154206 0.110290 1.39819
+ 15 0.318121 0.220421 1.44324
+ 16 0.663929 0.442529 1.50031
+ 17 1.369077 0.891843 1.53511
+ 18 2.827645 1.798144 1.57254
+ 19 5.883996 3.661280 1.60709
+ 20 12.093364 7.424631 1.62882

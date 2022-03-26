@@ -1,0 +1,839 @@
+diff -r 444212f66719 -r 8efb09a13529 Grammar/Grammar
+--- a/Grammar/Grammar	Sat Jul 31 16:39:12 2010 +1200
++++ b/Grammar/Grammar	Sat Aug 07 16:01:53 2010 +1200
+@@ -118,7 +118,7 @@
+                          |'**' test)
+ # The reason that keywords are test nodes instead of NAME is that using NAME
+ # results in an ambiguity. ast.c makes sure it's a NAME.
+-argument: test [comp_for] | test '=' test  # Really [keyword '='] test
++argument: (test | yield_from) [comp_for] | test '=' (test | yield_from)  # Really [keyword '='] test
+ comp_iter: comp_for | comp_if
+ comp_for: 'for' exprlist 'in' or_test [comp_iter]
+ comp_if: 'if' test_nocond [comp_iter]
+@@ -128,4 +128,6 @@
+ # not used in grammar, but may appear in "node" passed from Parser to Compiler
+ encoding_decl: NAME
+ 
+-yield_expr: 'yield' [testlist]
++yield_expr: 'yield' [yield_arg]
++yield_arg: 'from' test | testlist
++yield_from: 'yield' 'from' test
+diff -r 444212f66719 -r 8efb09a13529 Include/frameobject.h
+--- a/Include/frameobject.h	Sat Jul 31 16:39:12 2010 +1200
++++ b/Include/frameobject.h	Sat Aug 07 16:01:53 2010 +1200
+@@ -26,6 +26,7 @@
+        to the current stack top. */
+     PyObject **f_stacktop;
+     PyObject *f_trace;		/* Trace function */
++    PyObject *f_yieldfrom;      /* Iterator being delegated to by yield from */
+ 
+ 	/* In a generator, we need to be able to swap between the exception
+ 	   state inside the generator and the exception state of the calling
+diff -r 444212f66719 -r 8efb09a13529 Include/genobject.h
+--- a/Include/genobject.h	Sat Jul 31 16:39:12 2010 +1200
++++ b/Include/genobject.h	Sat Aug 07 16:01:53 2010 +1200
+@@ -33,6 +33,7 @@
+ 
+ PyAPI_FUNC(PyObject *) PyGen_New(struct _frame *);
+ PyAPI_FUNC(int) PyGen_NeedsFinalizing(PyGenObject *);
++PyAPI_FUNC(int) PyGen_FetchStopIterationValue(PyObject **);
+ 
+ #ifdef __cplusplus
+ }
+diff -r 444212f66719 -r 8efb09a13529 Include/opcode.h
+--- a/Include/opcode.h	Sat Jul 31 16:39:12 2010 +1200
++++ b/Include/opcode.h	Sat Aug 07 16:01:53 2010 +1200
+@@ -53,6 +53,7 @@
+ #define STORE_LOCALS	69
+ #define PRINT_EXPR	70
+ #define LOAD_BUILD_CLASS 71
++#define YIELD_FROM	72
+ 
+ #define INPLACE_LSHIFT	75
+ #define INPLACE_RSHIFT	76
+@@ -144,7 +145,6 @@
+    remaining private.*/
+ #define EXCEPT_HANDLER 257
+ 
+-
+ enum cmp_op {PyCmp_LT=Py_LT, PyCmp_LE=Py_LE, PyCmp_EQ=Py_EQ, PyCmp_NE=Py_NE, PyCmp_GT=Py_GT, PyCmp_GE=Py_GE,
+ 	     PyCmp_IN, PyCmp_NOT_IN, PyCmp_IS, PyCmp_IS_NOT, PyCmp_EXC_MATCH, PyCmp_BAD};
+ 
+diff -r 444212f66719 -r 8efb09a13529 Include/pyerrors.h
+--- a/Include/pyerrors.h	Sat Jul 31 16:39:12 2010 +1200
++++ b/Include/pyerrors.h	Sat Aug 07 16:01:53 2010 +1200
+@@ -56,6 +56,11 @@
+ } PyWindowsErrorObject;
+ #endif
+ 
++typedef struct {
++    PyException_HEAD
++    PyObject *value;
++} PyStopIterationObject;
++
+ /* Error handling definitions */
+ 
+ PyAPI_FUNC(void) PyErr_SetNone(PyObject *);
+@@ -286,6 +291,8 @@
+ PyAPI_FUNC(int) PyUnicodeTranslateError_SetReason(
+ 	PyObject *, const char *);
+ 
++/* create a StopIteration exception with the given value */
++PyAPI_FUNC(PyObject *) PyStopIteration_New(PyObject *);
+ 
+ /* These APIs aren't really part of the error implementation, but
+    often needed to format error messages; the native C lib APIs are
+diff -r 444212f66719 -r 8efb09a13529 Lib/opcode.py
+--- a/Lib/opcode.py	Sat Jul 31 16:39:12 2010 +1200
++++ b/Lib/opcode.py	Sat Aug 07 16:01:53 2010 +1200
+@@ -88,6 +88,7 @@
+ 
+ def_op('PRINT_EXPR', 70)
+ def_op('LOAD_BUILD_CLASS', 71)
++def_op('YIELD_FROM', 72)
+ 
+ def_op('INPLACE_LSHIFT', 75)
+ def_op('INPLACE_RSHIFT', 76)
+diff -r 444212f66719 -r 8efb09a13529 Lib/test/test_generators.py
+--- a/Lib/test/test_generators.py	Sat Jul 31 16:39:12 2010 +1200
++++ b/Lib/test/test_generators.py	Sat Aug 07 16:01:53 2010 +1200
+@@ -728,29 +728,6 @@
+ 
+ syntax_tests = """
+ 
+->>> def f():
+-...     return 22
+-...     yield 1
+-Traceback (most recent call last):
+-  ..
+-SyntaxError: 'return' with argument inside generator
+-
+->>> def f():
+-...     yield 1
+-...     return 22
+-Traceback (most recent call last):
+-  ..
+-SyntaxError: 'return' with argument inside generator
+-
+-"return None" is not the same as "return" in a generator:
+-
+->>> def f():
+-...     yield 1
+-...     return None
+-Traceback (most recent call last):
+-  ..
+-SyntaxError: 'return' with argument inside generator
+-
+ These are fine:
+ 
+ >>> def f():
+@@ -866,20 +843,6 @@
+ >>> type(f())
+ <class 'generator'>
+ 
+-
+->>> def f():
+-...     if 0:
+-...         lambda x:  x        # shouldn't trigger here
+-...         return              # or here
+-...         def f(i):
+-...             return 2*i      # or here
+-...         if 0:
+-...             return 3        # but *this* sucks (line 8)
+-...     if 0:
+-...         yield 2             # because it's a generator (line 10)
+-Traceback (most recent call last):
+-SyntaxError: 'return' with argument inside generator
+-
+ This one caused a crash (see SF bug 567538):
+ 
+ >>> def f():
+@@ -1566,11 +1529,6 @@
+   ...
+ SyntaxError: 'yield' outside function
+ 
+->>> def f(): return lambda x=(yield): 1
+-Traceback (most recent call last):
+-  ...
+-SyntaxError: 'return' with argument inside generator
+-
+ >>> def f(): x = yield = y
+ Traceback (most recent call last):
+   ...
+diff -r 444212f66719 -r 8efb09a13529 Lib/test/test_grammar.py
+--- a/Lib/test/test_grammar.py	Sat Jul 31 16:39:12 2010 +1200
++++ b/Lib/test/test_grammar.py	Sat Aug 07 16:01:53 2010 +1200
+@@ -458,6 +458,7 @@
+ 
+     def testYield(self):
+         check_syntax_error(self, "class foo:yield 1")
++        check_syntax_error(self, "yield from")
+ 
+     def testRaise(self):
+         # 'raise' test [',' test]
+diff -r 444212f66719 -r 8efb09a13529 Lib/test/test_parser.py
+--- a/Lib/test/test_parser.py	Sat Jul 31 16:39:12 2010 +1200
++++ b/Lib/test/test_parser.py	Sat Aug 07 16:01:53 2010 +1200
+@@ -51,6 +51,10 @@
+         self.check_suite("def f(): (yield 1)*2")
+         self.check_suite("def f(): return; yield 1")
+         self.check_suite("def f(): yield 1; return")
++        self.check_suite("def f(): yield from 1")
++        self.check_suite("def f(): x = yield from 1")
++        self.check_suite("def f(): f(yield from 1)")
++        self.check_suite("def f(): yield 1; return 1")
+         self.check_suite("def f():\n"
+                          "    for x in range(30):\n"
+                          "        yield x\n")
+diff -r 444212f66719 -r 8efb09a13529 Lib/test/test_sys.py
+--- a/Lib/test/test_sys.py	Sat Jul 31 16:39:12 2010 +1200
++++ b/Lib/test/test_sys.py	Sat Aug 07 16:01:53 2010 +1200
+@@ -591,7 +591,7 @@
+         nfrees = len(x.f_code.co_freevars)
+         extras = x.f_code.co_stacksize + x.f_code.co_nlocals +\
+                   ncells + nfrees - 1
+-        check(x, size(vh + '12P3i' + CO_MAXBLOCKS*'3i' + 'P' + extras*'P'))
++        check(x, size(vh + '13P3i' + CO_MAXBLOCKS*'3i' + 'P' + extras*'P'))
+         # function
+         def func(): pass
+         check(func, size(h + '11P'))
+diff -r 444212f66719 -r 8efb09a13529 Modules/parsermodule.c
+--- a/Modules/parsermodule.c	Sat Jul 31 16:39:12 2010 +1200
++++ b/Modules/parsermodule.c	Sat Aug 07 16:01:53 2010 +1200
+@@ -683,7 +683,7 @@
+         }
+         else if (start_sym == file_input) {
+             /*  This looks like an exec form so far.  */
+-            if (validate_file_input(tree))
++           if (validate_file_input(tree))
+                 st = parser_newstobject(tree, PyST_SUITE);
+             else
+                 PyNode_Free(tree);
+@@ -963,6 +963,7 @@
+ VALIDATER(testlist_comp);       VALIDATER(yield_expr);
+ VALIDATER(yield_or_testlist);   VALIDATER(or_test);
+ VALIDATER(test_nocond);         VALIDATER(lambdef_nocond);
++VALIDATER(yield_arg);           VALIDATER(yield_from);
+ 
+ #undef VALIDATER
+ 
+@@ -1619,22 +1620,61 @@
+ }
+ 
+ 
+-/* yield_expr: 'yield' [testlist]
++/* yield_expr: 'yield' [yield_arg]
+  */
+ static int
+ validate_yield_expr(node *tree)
+ {
+     int nch = NCH(tree);
+-    int res = (validate_ntype(tree, yield_expr)
+-               && ((nch == 1) || (nch == 2))
+-               && validate_name(CHILD(tree, 0), "yield"));
+-
+-    if (res && (nch == 2))
+-        res = validate_testlist(CHILD(tree, 1));
+-
+-    return (res);
++    if (nch < 1 || nch > 2)
++        return 0;
++    if (!validate_ntype(tree, yield_expr))
++        return 0;
++    if (!validate_name(CHILD(tree, 0), "yield"))
++        return 0;
++    if (nch == 2) {
++        if (!validate_yield_arg(CHILD(tree, 1)))
++            return 0;
++    }
++    return 1;
+ }
+ 
++/* yield_arg: 'from' test | testlist
++ */
++static int
++validate_yield_arg(node *tree)
++{
++    int nch = NCH(tree);
++    if (!validate_ntype(tree, yield_arg))
++        return 0;
++    if (nch == 1) {
++        if (!validate_testlist(CHILD(tree, nch - 1)))
++            return 0;
++     }
++     else if (nch == 2) {
++        if (!validate_name(CHILD(tree, 0), "from"))
++            return 0;
++        if (!validate_test(CHILD(tree, 1)))
++            return 0;
++    }
++    else
++        return 0;
++    return 1;
++}
++
++/* yield_from: 'yield' 'from' test
++ */
++static int
++validate_yield_from(node *tree)
++{
++    int nch = NCH(tree);
++    int res = (validate_ntype(tree, yield_from)
++               && (nch == 3)
++               && validate_name(CHILD(tree, 0), "yield")
++               && validate_name(CHILD(tree, 1), "from")
++               && validate_test(CHILD(tree, 2)));
++    return res;
++}
+ 
+ /* yield_stmt: yield_expr
+  */
+@@ -2648,9 +2688,13 @@
+ {
+     int nch = NCH(tree);
+     int res = (validate_ntype(tree, argument)
+-               && ((nch == 1) || (nch == 2) || (nch == 3))
+-               && validate_test(CHILD(tree, 0)));
+-
++               && ((nch == 1) || (nch == 2) || (nch == 3)));
++    if (res) {
++        if (TYPE(CHILD(tree, 0)) == yield_from)
++            res = (nch == 1) && validate_yield_from(CHILD(tree, 0));
++        else
++            res = validate_test(CHILD(tree, 0));
++    }
+     if (res && (nch == 2))
+         res = validate_comp_for(CHILD(tree, 1));
+     else if (res && (nch == 3))
+diff -r 444212f66719 -r 8efb09a13529 Objects/exceptions.c
+--- a/Objects/exceptions.c	Sat Jul 31 16:39:12 2010 +1200
++++ b/Objects/exceptions.c	Sat Aug 07 16:01:53 2010 +1200
+@@ -471,8 +471,65 @@
+ /*
+  *    StopIteration extends Exception
+  */
+-SimpleExtendsException(PyExc_Exception, StopIteration,
+-                       "Signal the end from iterator.__next__().");
++
++//SimpleExtendsException(PyExc_Exception, StopIteration,
++//                       "Signal the end from iterator.__next__().");
++
++static PyMemberDef StopIteration_members[] = {
++    {"value", T_OBJECT, offsetof(PyStopIterationObject, value), 0,
++        PyDoc_STR("generator return value")},
++    {NULL}  /* Sentinel */
++};
++
++static int
++StopIteration_init(PyStopIterationObject *self, PyObject *args, PyObject *kwds)
++{
++    Py_ssize_t size = PyTuple_GET_SIZE(args);
++    PyObject *value;
++
++    if (BaseException_init((PyBaseExceptionObject *)self, args, kwds) == -1)
++        return -1;
++    Py_CLEAR(self->value);
++    if (size > 0)
++        value = PyTuple_GET_ITEM(args, 0);
++    else
++        value = Py_None;
++    Py_INCREF(value);
++    self->value = value;
++    return 0;
++}
++
++static int
++StopIteration_clear(PyStopIterationObject *self)
++{
++    Py_CLEAR(self->value);
++    return BaseException_clear((PyBaseExceptionObject *)self);
++}
++
++static void
++StopIteration_dealloc(PyStopIterationObject *self)
++{
++    _PyObject_GC_UNTRACK(self);
++    StopIteration_clear(self);
++    Py_TYPE(self)->tp_free((PyObject *)self);
++}
++
++static int
++StopIteration_traverse(PyStopIterationObject *self, visitproc visit, void *arg)
++{
++    Py_VISIT(self->value);
++    return BaseException_traverse((PyBaseExceptionObject *)self, visit, arg);
++}
++
++PyObject *
++PyStopIteration_New(PyObject *value)
++{
++    return PyObject_CallFunctionObjArgs(PyExc_StopIteration, value, NULL);
++}
++
++ComplexExtendsException(PyExc_Exception, StopIteration, StopIteration,
++    StopIteration_dealloc, 0, StopIteration_members, 0,
++    "Signal the end from iterator.__next__().");
+ 
+ 
+ /*
+diff -r 444212f66719 -r 8efb09a13529 Objects/frameobject.c
+--- a/Objects/frameobject.c	Sat Jul 31 16:39:12 2010 +1200
++++ b/Objects/frameobject.c	Sat Aug 07 16:01:53 2010 +1200
+@@ -20,6 +20,7 @@
+ 	{"f_builtins",	T_OBJECT,	OFF(f_builtins),READONLY},
+ 	{"f_globals",	T_OBJECT,	OFF(f_globals),	READONLY},
+ 	{"f_lasti",	T_INT,		OFF(f_lasti),	READONLY},
++	{"f_yieldfrom",	T_OBJECT,       OFF(f_yieldfrom),READONLY},
+ 	{NULL}	/* Sentinel */
+ };
+ 
+@@ -444,6 +445,7 @@
+ 	Py_CLEAR(f->f_exc_type);
+ 	Py_CLEAR(f->f_exc_value);
+ 	Py_CLEAR(f->f_exc_traceback);
++	Py_CLEAR(f->f_yieldfrom);
+ 
+ 	co = f->f_code;
+ 	if (co->co_zombieframe == NULL)
+@@ -475,6 +477,7 @@
+ 	Py_VISIT(f->f_exc_type);
+ 	Py_VISIT(f->f_exc_value);
+ 	Py_VISIT(f->f_exc_traceback);
++	Py_VISIT(f->f_yieldfrom);
+ 
+ 	/* locals */
+ 	slots = f->f_code->co_nlocals + PyTuple_GET_SIZE(f->f_code->co_cellvars) + PyTuple_GET_SIZE(f->f_code->co_freevars);
+@@ -508,6 +511,7 @@
+ 	Py_CLEAR(f->f_exc_value);
+ 	Py_CLEAR(f->f_exc_traceback);
+ 	Py_CLEAR(f->f_trace);
++	Py_CLEAR(f->f_yieldfrom);
+ 
+ 	/* locals */
+ 	slots = f->f_code->co_nlocals + PyTuple_GET_SIZE(f->f_code->co_cellvars) + PyTuple_GET_SIZE(f->f_code->co_freevars);
+@@ -711,6 +715,7 @@
+ 	f->f_lasti = -1;
+ 	f->f_lineno = code->co_firstlineno;
+ 	f->f_iblock = 0;
++	f->f_yieldfrom = NULL;
+ 
+ 	_PyObject_GC_TRACK(f);
+ 	return f;
+diff -r 444212f66719 -r 8efb09a13529 Objects/genobject.c
+--- a/Objects/genobject.c	Sat Jul 31 16:39:12 2010 +1200
++++ b/Objects/genobject.c	Sat Aug 07 16:01:53 2010 +1200
+@@ -7,6 +7,9 @@
+ #include "structmember.h"
+ #include "opcode.h"
+ 
++static PyObject *gen_close(PyGenObject *gen, PyObject *args);
++static void gen_undelegate(PyGenObject *);
++
+ static int
+ gen_traverse(PyGenObject *gen, visitproc visit, void *arg)
+ {
+@@ -92,12 +95,15 @@
+ 
+ 	/* If the generator just returned (as opposed to yielding), signal
+ 	 * that the generator is exhausted. */
+-	if (result == Py_None && f->f_stacktop == NULL) {
++	if (result && f->f_stacktop == NULL) {
++		if (result == Py_None)
++			PyErr_SetNone(PyExc_StopIteration);
++		else {
++			PyObject *e = PyStopIteration_New(result);
++			PyErr_SetObject(PyExc_StopIteration, e);
++		}
+ 		Py_DECREF(result);
+ 		result = NULL;
+-		/* Set exception if not called by gen_iternext() */
+-		if (arg)
+-			PyErr_SetNone(PyExc_StopIteration);
+ 	}
+ 
+ 	if (!result || f->f_stacktop == NULL) {
+@@ -116,17 +122,82 @@
+ static PyObject *
+ gen_send(PyGenObject *gen, PyObject *arg)
+ {
+-	return gen_send_ex(gen, arg, 0);
++	int exc = 0;
++	PyObject *ret;
++	PyObject *yf = gen->gi_frame ? gen->gi_frame->f_yieldfrom : NULL;
++	Py_INCREF(arg);
++	if (yf) {
++		Py_INCREF(yf);
++		if (PyGen_CheckExact(yf))
++			ret = gen_send((PyGenObject *)yf, arg);
++		else {
++			if (arg == Py_None)
++				ret = PyIter_Next(yf);
++			else
++				ret = PyObject_CallMethod(yf, "send", "O", arg);
++		}
++		if (ret) {
++			Py_DECREF(yf);
++			goto done;
++		}
++		gen_undelegate(gen);
++		Py_DECREF(arg);
++		arg = NULL;
++		if (PyGen_FetchStopIterationValue(&arg) < 0)
++			exc = 1;
++		Py_DECREF(yf);
++	}
++	ret = gen_send_ex(gen, arg, exc);
++done:
++	Py_XDECREF(arg);
++	return ret;
+ }
+ 
+ PyDoc_STRVAR(close_doc,
+ "close(arg) -> raise GeneratorExit inside generator.");
+ 
++/*
++ *   This helper function is used by gen_close and gen_throw to
++ *   close a subiterator being delegated to by yield-from.
++ */
++
++static int
++gen_close_iter(PyObject *yf) {
++	PyObject *retval = NULL;
++	
++	if (PyGen_CheckExact(yf)) {
++		retval = gen_close((PyGenObject *)yf, NULL);
++		if (!retval)
++			return -1;
++	}
++	else {
++		PyObject *meth = PyObject_GetAttrString(yf, "close");
++		if (meth) {
++			retval = PyObject_CallFunction(meth, "");
++			Py_DECREF(meth);
++			if (!retval)
++				return -1;
++		}
++	}
++	Py_XDECREF(retval);
++	return 0;
++}	
++
+ static PyObject *
+ gen_close(PyGenObject *gen, PyObject *args)
+ {
+ 	PyObject *retval;
+-	PyErr_SetNone(PyExc_GeneratorExit);
++	PyObject *yf = gen->gi_frame ? gen->gi_frame->f_yieldfrom : NULL;
++	int err = 0;
++
++	if (yf) {
++		Py_INCREF(yf);
++		err = gen_close_iter(yf);
++		gen_undelegate(gen);
++		Py_DECREF(yf);
++	}
++	if (err == 0)
++		PyErr_SetNone(PyExc_GeneratorExit);
+ 	retval = gen_send_ex(gen, Py_None, 1);
+ 	if (retval) {
+ 		Py_DECREF(retval);
+@@ -217,10 +288,51 @@
+ 	PyObject *typ;
+ 	PyObject *tb = NULL;
+ 	PyObject *val = NULL;
++	PyObject *yf = gen->gi_frame ? gen->gi_frame->f_yieldfrom : NULL;
+ 
+ 	if (!PyArg_UnpackTuple(args, "throw", 1, 3, &typ, &val, &tb))
+ 		return NULL;
+ 
++	if (yf) {
++		PyObject *ret;
++		int err;
++		Py_INCREF(yf);
++		if (PyErr_GivenExceptionMatches(typ, PyExc_GeneratorExit)) {
++			err = gen_close_iter(yf);
++			Py_DECREF(yf);
++			gen_undelegate(gen);
++			if (err < 0)
++				return gen_send_ex(gen, Py_None, 1);
++			goto throw_here;
++		}
++		if (PyGen_CheckExact(yf))
++			ret = gen_throw((PyGenObject *)yf, args);
++		else {
++			PyObject *meth = PyObject_GetAttrString(yf, "throw");
++			if (!meth) {
++				PyErr_Clear();
++				Py_DECREF(yf);
++				gen_undelegate(gen);
++				goto throw_here;
++			}
++			ret = PyObject_CallObject(meth, args);
++			Py_DECREF(meth);
++		}
++		Py_DECREF(yf);
++		if (!ret) {
++			PyObject *val;
++			gen_undelegate(gen);
++			if (PyGen_FetchStopIterationValue(&val) == 0) {
++				ret = gen_send_ex(gen, val, 0);
++				Py_DECREF(val);
++			}
++			else
++				ret = gen_send_ex(gen, Py_None, 1);
++		}
++		return ret;
++	}
++
++throw_here:
+ 	/* First, check the traceback argument, replacing None with
+ 	   NULL. */
+ 	if (tb == Py_None)
+@@ -278,9 +390,74 @@
+ static PyObject *
+ gen_iternext(PyGenObject *gen)
+ {
+-	return gen_send_ex(gen, NULL, 0);
++	PyObject *val = NULL;
++	PyObject *ret;
++	int exc = 0;
++	PyObject *yf = gen->gi_frame ? gen->gi_frame->f_yieldfrom : NULL;
++	if (yf) {
++		Py_INCREF(yf);
++		/* ceval.c ensures that yf is an iterator */
++		ret = yf->ob_type->tp_iternext(yf);
++		if (ret) {
++			Py_DECREF(yf);
++			return ret;
++		}
++		gen_undelegate(gen);
++		if (PyGen_FetchStopIterationValue(&val) < 0)
++			exc = 1;
++		Py_DECREF(yf);
++	}
++	ret = gen_send_ex(gen, val, exc);
++	Py_XDECREF(val);
++	return ret;
+ }
+ 
++/*
++ *   In certain recursive situations, a generator may lose its frame
++ *   before we get a chance to clear f_yieldfrom, so we use this
++ *   helper function.
++ */
++
++static void
++gen_undelegate(PyGenObject *gen) {
++	if (gen->gi_frame) {
++		Py_XDECREF(gen->gi_frame->f_yieldfrom);
++		gen->gi_frame->f_yieldfrom = NULL;
++	}
++}
++
++/*
++ *   If StopIteration exception is set, fetches its 'value'
++ *   attribute if any, otherwise sets pvalue to None.
++ *
++ *   Returns 0 if no exception or StopIteration is set.
++ *   If any other exception is set, returns -1 and leaves
++ *   pvalue unchanged.
++ */
++
++int
++PyGen_FetchStopIterationValue(PyObject **pvalue) {
++	PyObject *et, *ev, *tb;
++	PyObject *value = NULL;
++	
++	if (PyErr_ExceptionMatches(PyExc_StopIteration)) {
++		PyErr_Fetch(&et, &ev, &tb);
++		Py_XDECREF(et); Py_XDECREF(tb);
++		if (ev) {
++			value = ((PyStopIterationObject *)ev)->value;
++			Py_XINCREF(value);
++			Py_DECREF(ev);
++		}
++	}
++	else if (PyErr_Occurred())
++		return -1;
++	if (!value) {
++		value = Py_None;
++		Py_INCREF(value);
++	}
++	*pvalue = value;
++	return 0;
++}
+ 
+ static PyObject *
+ gen_repr(PyGenObject *gen)
+diff -r 444212f66719 -r 8efb09a13529 Parser/Python.asdl
+--- a/Parser/Python.asdl	Sat Jul 31 16:39:12 2010 +1200
++++ b/Parser/Python.asdl	Sat Aug 07 16:01:53 2010 +1200
+@@ -60,7 +60,7 @@
+ 	     | DictComp(expr key, expr value, comprehension* generators)
+ 	     | GeneratorExp(expr elt, comprehension* generators)
+ 	     -- the grammar constrains where yield expressions can occur
+-	     | Yield(expr? value)
++	     | Yield(int is_from, expr? value)
+ 	     -- need sequences for compare to distinguish between
+ 	     -- x < 4 < 3 and (x < 4) < 3
+ 	     | Compare(expr left, cmpop* ops, expr* comparators)
+diff -r 444212f66719 -r 8efb09a13529 Python/ast.c
+--- a/Python/ast.c	Sat Jul 31 16:39:12 2010 +1200
++++ b/Python/ast.c	Sat Aug 07 16:01:53 2010 +1200
+@@ -1895,13 +1895,28 @@
+             }
+             return ast_for_binop(c, n);
+         case yield_expr: {
++            node *an = NULL;
++            node *en = NULL;
++            int is_from = 0;
+             expr_ty exp = NULL;
+-            if (NCH(n) == 2) {
+-                exp = ast_for_testlist(c, CHILD(n, 1));
++            if (NCH(n) > 1)
++                an = CHILD(n, 1); /* yield_arg */
++            if (an) {
++                en = CHILD(an, NCH(an) - 1);
++                if (NCH(an) == 2) {
++                    is_from = 1;
++                    exp = ast_for_expr(c, en);
++                }
++                else
++                    exp = ast_for_testlist(c, en);
+                 if (!exp)
+                     return NULL;
+             }
+-            return Yield(exp, LINENO(n), n->n_col_offset, c->c_arena);
++            return Yield(is_from, exp, LINENO(n), n->n_col_offset, c->c_arena);
++        }
++        case yield_from: {
++            expr_ty exp = ast_for_expr(c, CHILD(n, 2));
++            return Yield(1, exp, LINENO(n), n->n_col_offset, c->c_arena);
+         }
+         case factor:
+             if (NCH(n) == 1) {
+@@ -1925,7 +1940,7 @@
+     /*
+       arglist: (argument ',')* (argument [',']| '*' test [',' '**' test]
+                | '**' test)
+-      argument: [test '='] test [comp_for]        # Really [keyword '='] test
++      argument: [test '='] (test | yield_from) [comp_for]        # Really [keyword '='] test
+     */
+ 
+     int i, nargs, nkeywords, ngens;
+@@ -2220,7 +2235,7 @@
+       continue_stmt: 'continue'
+       return_stmt: 'return' [testlist]
+       yield_stmt: yield_expr
+-      yield_expr: 'yield' testlist
++      yield_expr: 'yield' testlist | 'yield' 'from' test
+       raise_stmt: 'raise' [test [',' test [',' test]]]
+     */
+     node *ch;
+diff -r 444212f66719 -r 8efb09a13529 Python/ceval.c
+--- a/Python/ceval.c	Sat Jul 31 16:39:12 2010 +1200
++++ b/Python/ceval.c	Sat Aug 07 16:01:53 2010 +1200
+@@ -1795,8 +1795,47 @@
+ 			why = WHY_RETURN;
+ 			goto fast_block_end;
+ 
++		TARGET(YIELD_FROM)
++			u = POP();
++			x = PyObject_GetIter(u);
++			Py_DECREF(u);
++			if (!x)
++				break;
++			/* x is now the iterator, make the first next() call */
++			retval = (*x->ob_type->tp_iternext)(x);
++			if (!retval) {
++				/* iter may be exhausted */
++				Py_DECREF(x);
++				if (PyErr_ExceptionMatches(PyExc_StopIteration)) {
++					/* try to get return value from exception */
++					PyObject *et, *ev, *tb;
++					PyErr_Fetch(&et, &ev, &tb);
++					Py_XDECREF(et); Py_XDECREF(tb);
++					u = NULL;
++					if (ev) {
++						u = PyObject_GetAttrString(ev, "value");
++						Py_DECREF(ev);
++						if (!u) PyErr_Clear();
++					}
++					if (!u) {
++						u = Py_None;
++						Py_INCREF(u);
++					}
++					/* u is return value */
++					PUSH(u);
++					continue;
++				}
++				/* some other exception */
++				x = NULL;
++				break;
++			}
++			/* x is iterator, retval is value to be yielded */
++			f->f_yieldfrom = x;
++			goto yield_retval;
++
+ 		TARGET(YIELD_VALUE)
+ 			retval = POP();
++		yield_retval:
+ 			f->f_stacktop = stack_pointer;
+ 			why = WHY_YIELD;
+ 			/* Put aside the current exception state and restore
+diff -r 444212f66719 -r 8efb09a13529 Python/compile.c
+--- a/Python/compile.c	Sat Jul 31 16:39:12 2010 +1200
++++ b/Python/compile.c	Sat Aug 07 16:01:53 2010 +1200
+@@ -768,6 +768,7 @@
+ 		case IMPORT_STAR:
+ 			return -1;
+ 		case YIELD_VALUE:
++		case YIELD_FROM:
+ 			return 0;
+ 
+ 		case POP_BLOCK:
+@@ -3243,7 +3244,12 @@
+ 		else {
+ 			ADDOP_O(c, LOAD_CONST, Py_None, consts);
+ 		}
+-		ADDOP(c, YIELD_VALUE);
++		if (e->v.Yield.is_from) {
++			ADDOP(c, YIELD_FROM);
++		}
++		else {
++			ADDOP(c, YIELD_VALUE);
++		}
+ 		break;
+ 	case Compare_kind:
+ 		return compiler_compare(c, e);
+diff -r 444212f66719 -r 8efb09a13529 Python/symtable.c
+--- a/Python/symtable.c	Sat Jul 31 16:39:12 2010 +1200
++++ b/Python/symtable.c	Sat Aug 07 16:01:53 2010 +1200
+@@ -1158,13 +1158,6 @@
+ 		if (s->v.Return.value) {
+ 			VISIT(st, expr, s->v.Return.value);
+ 			st->st_cur->ste_returns_value = 1;
+-			if (st->st_cur->ste_generator) {
+-				PyErr_SetString(PyExc_SyntaxError,
+-					RETURN_VAL_IN_GENERATOR);
+-			        PyErr_SyntaxLocation(st->st_filename,
+-				             s->lineno);
+-				return 0;
+-			}
+ 		}
+ 		break;
+         case Delete_kind:
+@@ -1372,13 +1365,6 @@
+ 		if (e->v.Yield.value)
+ 			VISIT(st, expr, e->v.Yield.value);
+                 st->st_cur->ste_generator = 1;
+-		if (st->st_cur->ste_returns_value) {
+-			PyErr_SetString(PyExc_SyntaxError,
+-				RETURN_VAL_IN_GENERATOR);
+-		        PyErr_SyntaxLocation(st->st_filename,
+-			             e->lineno);
+-			return 0;
+-		}
+ 		break;
+         case Compare_kind:
+ 		VISIT(st, expr, e->v.Compare.left);

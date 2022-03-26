@@ -1,0 +1,8 @@
+g starting
+f resuming g
+g returning None
+f caught StopIteration()
+g starting
+f resuming g
+g returning 42
+f caught StopIteration(42,)
