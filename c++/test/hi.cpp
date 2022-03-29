@@ -68,5 +68,8 @@ int main()
     string test{"a href='img/2.gi' id='nihao'"};
     search_element3(test);
 
+    string tt = "</" + test + ">";
+    cout << tt;
+
     return 0;
 }

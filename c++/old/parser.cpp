@@ -1,6 +1,6 @@
 #include "parser.h"
 
-inline Element::Element(const std::string &tag_txt, const std::string &value) : parent_(nullptr), value_(value)
+inline Element::Element(const std::string &tag_txt) : parent_(nullptr)
 {
     parse_attribute(tag_txt);
 }
@@ -20,9 +20,24 @@ void Element::parse_attribute(const std::string &tag_txt)
         // cout << attr << ":的值:" << value << endl;
     }
 }
+std::string Element::get_tag_type(const std::string &tag_text)
+{
+    using namespace std;
+    regex type_reg("([^=\\s]*)");
+    smatch result;
+    auto ret = regex_search(tag_text.cbegin(), tag_text.cend(), result, type_reg);
+    return ret ? result.str(1) : "";
+}
 void Element::show()
 {
     std::cout << "标签类型:" << tag_ << " 内容：" << value_ << std::endl;
+}
+
+HtmlFile::HtmlFile(const std::string &path)
+{
+    using namespace std;
+    ofstream out_file;
+    
 }
 
 void parse_ml(const std::string &ori_text)
@@ -55,12 +70,12 @@ void parse_ml(const std::string &ori_text)
                 {
                     cout << "弹出" << top_type << endl;
                     string value(top_pair.second, ori_text.cbegin() + match.position());
-                    Element ele(top_text, value);
+                    Element ele(top_text);
                     break;
                 }
                 else
                 {
-                    Element ele(top_text, "");
+                    Element ele(top_text);
                     cout << tag_text << endl;
                 }
             }
@@ -74,13 +89,49 @@ void parse_ml(const std::string &ori_text)
     }
 }
 
-std::string get_tag_type(const std::string &tag_text)
+void parse_mml(const std::string &ori_text)
 {
     using namespace std;
-    regex type_reg("([^=\\s]*)");
-    smatch result;
-    auto ret = regex_search(tag_text.cbegin(), tag_text.cend(), result, type_reg);
-    return ret ? result.str(1) : "";
+
+    stack<pair<Element, string::const_iterator>> element_stack;
+    stack<Element> layer_stack;
+
+    regex reg("<([^>]*)>");
+    stack<pair<string, string::const_iterator>> parse_stack;
+    auto words_begin = sregex_iterator(ori_text.cbegin(), ori_text.cend(), reg);
+    auto words_end = sregex_iterator();
+
+    bool is_last_finish = true;
+
+    for (sregex_iterator k = words_begin; k != words_end; ++k)
+    {
+        smatch match = *k;
+        string tag_text = match.str(1);
+        string tag_type;
+
+        if (tag_text[0] == '/')
+        {
+            // 标签结束标识
+            string new_text(tag_text.cbegin() + 1, tag_text.cend());
+            tag_type = get_tag_type(new_text);
+        }
+        else
+        {
+            // 标签添加标识
+            string::const_iterator end_iter = ori_text.cbegin() + match.position() + tag_text.length() + 2;
+            Element temp(tag_text);
+            if (is_last_finish)
+            {
+            }
+            else
+            {
+                Element last_ele = element_stack.top().first;
+                layer_stack.push(last_ele);
+                temp.set_parent(&last_ele);
+            }
+            is_last_finish = false;
+        }
+    }
 }
 
 std::string read_html(const std::string &html_path)
