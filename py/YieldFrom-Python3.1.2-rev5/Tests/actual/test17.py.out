@@ -1,8 +1,0 @@
-starting g
-finishing g
-Traceback (most recent call last):
-  File "test17.py", line 16, in <module>
-    y = gi.send(42)
-  File "test17.py", line 8, in g
-    yield from range(3)
-AttributeError: send

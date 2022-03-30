@@ -1,6 +1,0 @@
-StopIteration: 
-value = None
-StopIteration: spam
-value = spam
-StopIteration: spam
-value = eggs

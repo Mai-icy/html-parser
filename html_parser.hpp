@@ -1,4 +1,72 @@
-#include "html_parser.h"
+#include <iostream>
+#include <regex>
+#include <string>
+#include <map>
+#include <vector>
+#include <stack>
+#include <fstream>
+
+class HtmlFile;
+
+class Element
+{
+public:
+    Element(const std::string &node_txt);
+    ~Element();
+
+    Element *operator[](int index) const { return child_nodes[index]; };
+
+    Element *nextNode() const { return next_node; };
+    Element *firstChild() const { return child_nodes.size() ? child_nodes.front() : nullptr; };
+    Element *lastChild() const { return child_nodes.size() ? child_nodes.back() : nullptr; };
+
+    std::string getAttribute(const std::string &key) const;
+    Element *parentNode() const { return parent_node; };
+    std::string nodeName() const { return node_name_; };
+    std::string nodeValue() const { return node_value_; };
+    const std::vector<Element *> &childNodes() const { return child_nodes; };
+
+    friend std::ostream &operator<<(std::ostream &os, const Element &ele);
+    friend HtmlFile;
+
+private:
+    Element *parent_node;
+    Element *next_node;
+    std::string node_name_;
+    std::string node_value_;
+    std::vector<Element *> child_nodes;
+    std::map<std::string, std::string> attribute_map;
+
+    void sortChild();
+    void setParent(Element *parent_ele);
+    void parseAttribute(const std::string &node_txt);
+    static std::string getNodeName(const std::string &node_txt);
+};
+
+class HtmlFile
+{
+public:
+    HtmlFile(const std::string &path) { openFile(path); };
+    ~HtmlFile() { delete root_node; };
+
+    void openFile(const std::string &path);
+
+    Element *getElementById(const std::string &id);
+    const std::vector<Element *> &getElementByTagName(const std::string &tag_name);
+    const std::vector<Element *> &getElementByClassName(const std::string &class_name);
+
+    friend int main();
+
+private:
+    Element *root_node = new Element("root");
+
+    void mainParse(const std::string &ori_txt);
+    void addClassTagMap(std::string data, Element *, std::string mode);
+
+    std::map<std::string, Element *> element_id_map;
+    std::map<std::string, std::vector<Element *>> element_tag_name_map;
+    std::map<std::string, std::vector<Element *>> element_class_name_map;
+};
 
 Element::Element(const std::string &node_txt) : parent_node(nullptr), next_node(nullptr)
 {
@@ -25,9 +93,8 @@ std::string Element::getNodeName(const std::string &node_txt)
     return ret ? result.str(1) : "";
 }
 void Element::parseAttribute(const std::string &node_txt)
-{   
+{
     using namespace std;
-    cout<< node_txt<<endl;
     node_name_ = getNodeName(node_txt);
     regex words_regex("(\\S*)[\\s]*=[\\s]*['\"]([^>\\s]*)['\"]");
     auto words_begin = sregex_iterator(node_txt.cbegin(), node_txt.cend(), words_regex);
@@ -38,7 +105,6 @@ void Element::parseAttribute(const std::string &node_txt)
         string attr = match.str(1);
         string value = match.str(2);
         attribute_map[attr] = value;
-        // cout << attr << ":的值:" << value << endl;
     }
 }
 void Element::setParent(Element *parent_ele)
@@ -50,6 +116,13 @@ std::ostream &operator<<(std::ostream &os, const Element &ele)
 {
     os << ele.nodeName();
     return os;
+}
+void Element::sortChild()
+{
+    for (auto it = child_nodes.begin(); it == child_nodes.end() - 1; it++)
+    {
+        (*it)->next_node = *(it + 1);
+    }
 }
 
 void HtmlFile::addClassTagMap(std::string key, Element *temp, std::string mode)
@@ -118,6 +191,7 @@ void HtmlFile::mainParse(const std::string &ori_text)
                 stack_ele = element_stack.top().first;
                 string node_value(element_stack.top().second, ori_txt.cbegin() + match.position());
                 stack_ele->node_value_ = node_value;
+                stack_ele->sortChild();
                 element_stack.pop();
             }
             element_stack.pop();
@@ -180,17 +254,18 @@ void HtmlFile::mainParse(const std::string &ori_text)
         }
     }
 }
-Element *HtmlFile::getElementById(const std::string &id){
+Element *HtmlFile::getElementById(const std::string &id)
+{
     auto iter = element_id_map.find(id);
     return iter != element_id_map.end() ? iter->second : nullptr;
 }
-
-
-int main()
+const std::vector<Element *> &HtmlFile::getElementByTagName(const std::string &tag_name)
 {
-    using namespace std;
-    HtmlFile test = HtmlFile("page.html");
-    cout << test.getElementById("pic_text") << endl; 
-
-    return 0;
+    auto iter = element_tag_name_map.find(tag_name);
+    return iter != element_tag_name_map.end() ? iter->second : std::vector<Element *>();
+}
+const std::vector<Element *> &HtmlFile::getElementByClassName(const std::string &class_name)
+{
+    auto iter = element_class_name_map.find(class_name);
+    return iter != element_class_name_map.end() ? iter->second : std::vector<Element *>();
 }
