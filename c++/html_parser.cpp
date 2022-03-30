@@ -25,8 +25,9 @@ std::string Element::getNodeName(const std::string &node_txt)
     return ret ? result.str(1) : "";
 }
 void Element::parseAttribute(const std::string &node_txt)
-{
+{   
     using namespace std;
+    cout<< node_txt<<endl;
     node_name_ = getNodeName(node_txt);
     regex words_regex("(\\S*)[\\s]*=[\\s]*['\"]([^>\\s]*)['\"]");
     auto words_begin = sregex_iterator(node_txt.cbegin(), node_txt.cend(), words_regex);
@@ -40,7 +41,33 @@ void Element::parseAttribute(const std::string &node_txt)
         // cout << attr << ":的值:" << value << endl;
     }
 }
+void Element::setParent(Element *parent_ele)
+{
+    parent_node = parent_ele;
+    parent_ele->child_nodes.push_back(this);
+}
+std::ostream &operator<<(std::ostream &os, const Element &ele)
+{
+    os << ele.nodeName();
+    return os;
+}
 
+void HtmlFile::addClassTagMap(std::string key, Element *temp, std::string mode)
+{
+    using namespace std;
+    map<string, vector<Element *>> *map_ = mode == "tag" ? &element_tag_name_map : &element_class_name_map;
+    auto iter = map_->find(key);
+    if (iter == map_->end())
+    {
+        vector<Element *> new_vec;
+        new_vec.push_back(temp);
+        map_->insert(pair(key, new_vec));
+    }
+    else
+    {
+        iter->second.push_back(temp);
+    }
+}
 void HtmlFile::openFile(const std::string &path)
 {
     using namespace std;
@@ -55,29 +82,30 @@ void HtmlFile::openFile(const std::string &path)
     {
         res += temp;
     }
-    main_parse(res);
+    mainParse(res);
 }
-void HtmlFile::main_parse(const std::string &ori_txt)
+void HtmlFile::mainParse(const std::string &ori_text)
 {
     using namespace std;
 
+    string ori_txt = ori_text + "</root>";
     stack<pair<Element *, string::const_iterator>> element_stack;
     stack<Element *> layer_stack;
     layer_stack.push(root_node);
+    element_stack.push(pair(root_node, ori_txt.cbegin()));
 
     regex reg("<([^>]*)>");
     stack<pair<string, string::const_iterator>> parse_stack;
     auto words_begin = sregex_iterator(ori_txt.cbegin(), ori_txt.cend(), reg);
     auto words_end = sregex_iterator();
 
-    bool is_last_finish = true;
+    bool is_last_finish = false;
 
     for (sregex_iterator k = words_begin; k != words_end; ++k)
     {
         smatch match = *k;
         string node_text = match.str(1);
         string node_name;
-
         if (node_text[0] == '/')
         {
             // 标签结束标识
@@ -91,32 +119,38 @@ void HtmlFile::main_parse(const std::string &ori_txt)
                 string node_value(element_stack.top().second, ori_txt.cbegin() + match.position());
                 stack_ele->node_value_ = node_value;
                 element_stack.pop();
-                if (!element_stack.empty())
-                {
-                    cout << "弹出元素" << element_stack.top().first->node_name_ << endl;
-                }
             }
+            element_stack.pop();
             if (layer_stack.top()->node_name_ == node_name)
             {
                 layer_stack.pop();
-                if (!element_stack.empty())
-                {
-                    cout << "弹出层" << layer_stack.top()->node_name_ << endl;
-                }
             }
-            is_last_finish = false;
+            is_last_finish = true;
         }
         else
         {
             // 标签添加标识
             string::const_iterator end_iter = ori_txt.cbegin() + match.position() + node_text.length() + 2;
             node_name = Element::getNodeName(node_text);
-            Element *temp = new Element(node_name);
+            Element *temp = new Element(node_text);
+
+            if (!node_name.empty())
+            {
+                addClassTagMap(node_name, temp, "tag");
+            }
+
+            if (!temp->getAttribute("id").empty())
+            {
+                element_id_map.insert(pair(temp->getAttribute("id"), temp));
+            }
+            if (!temp->getAttribute("class").empty())
+            {
+                addClassTagMap(temp->getAttribute("class"), temp, "class");
+            }
 
             if (is_last_finish)
             {
-                temp->parent_node = layer_stack.top();
-                cout << "压入元素" << temp->node_name_ << endl;
+                temp->setParent(layer_stack.top());
                 element_stack.push(pair(temp, end_iter));
             }
             else
@@ -130,33 +164,33 @@ void HtmlFile::main_parse(const std::string &ori_txt)
                 auto ret = regex_search(end_iter, ori_txt.cend(), no_use_res, reg);
                 if (ret)
                 {
-                    cout << "压入层" << last_ele->node_name_ << endl;
                     layer_stack.push(last_ele);
-                    temp->parent_node = last_ele;
+                    temp->setParent(last_ele);
                 }
                 else
                 {
                     element_stack.pop();
-                    if (!element_stack.empty())
-                    {
-                        cout << "弹出元素" << element_stack.top().first->node_name_ << endl;
-                    }
                     string node_value(last_pair.second, ori_txt.cbegin() + match.position());
                     last_ele->node_value_ = node_value;
-                    temp->parent_node = layer_stack.top();
+                    temp->setParent(layer_stack.top());
                 }
-                cout << "压入元素" << temp->node_name_ << endl;
                 element_stack.push(pair(temp, end_iter));
             }
             is_last_finish = false;
         }
     }
 }
+Element *HtmlFile::getElementById(const std::string &id){
+    auto iter = element_id_map.find(id);
+    return iter != element_id_map.end() ? iter->second : nullptr;
+}
+
 
 int main()
 {
     using namespace std;
     HtmlFile test = HtmlFile("page.html");
+    cout << test.getElementById("pic_text") << endl; 
 
     return 0;
 }

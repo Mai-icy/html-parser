@@ -26,6 +26,7 @@ public:
     std::string nodeValue() const { return node_value_; };
     const std::vector<Element *> &childNodes() const { return child_nodes; };
 
+    friend std::ostream & operator<<(std::ostream &os, const Element& ele);
     friend HtmlFile;
 
 private:
@@ -36,6 +37,7 @@ private:
     std::vector<Element *> child_nodes;
     std::map<std::string, std::string> attribute_map;
 
+    void setParent(Element* parent_ele);
     void parseAttribute(const std::string &node_txt);
     static std::string getNodeName(const std::string &node_txt);
 };
@@ -52,10 +54,13 @@ public:
     const std::vector<Element *> &getElementByTagName(const std::string &tag_name);
     const std::vector<Element *> &getElementByClassName(const std::string &class_name);
 
+    friend int main();
+    
 private:
     Element *root_node = new Element("root");
 
-    void main_parse(const std::string &ori_txt);
+    void mainParse(const std::string &ori_txt);
+    void addClassTagMap(std::string data, Element *, std::string mode);
 
     std::map<std::string, Element *> element_id_map;
     std::map<std::string, std::vector<Element *>> element_tag_name_map;
